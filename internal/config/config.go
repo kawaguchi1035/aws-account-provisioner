@@ -14,6 +14,14 @@ import (
 // DefaultEmailTemplate is used by the interactive wizard when EMAIL_TEMPLATE is unset.
 const DefaultEmailTemplate = "aws+{account_name}@example.com"
 
+// Defaults for the initial Identity Center user Account Factory creates
+// alongside each account. Control Tower requires a first and last name; these
+// are placeholders for organizations that do not care to set their own.
+const (
+	DefaultSSOUserFirstName = "Admin"
+	DefaultSSOUserLastName  = "User"
+)
+
 // accountNamePlaceholder is substituted with the lowercased account name.
 const accountNamePlaceholder = "{account_name}"
 
@@ -30,6 +38,11 @@ type Config struct {
 
 	// EmailTemplate derives root email addresses in the wizard.
 	EmailTemplate string
+
+	// SSOUserFirstName and SSOUserLastName name the initial Identity Center
+	// user Account Factory creates for each account.
+	SSOUserFirstName string
+	SSOUserLastName  string
 }
 
 // Load reads the configuration. A .env file in the working directory is loaded
@@ -42,10 +55,19 @@ func Load() (Config, error) {
 		RootAccountID:  strings.TrimSpace(os.Getenv("ROOT_ACCOUNT_ID")),
 		AssumeRoleName: strings.TrimSpace(os.Getenv("ASSUME_ROLE_NAME")),
 		EmailTemplate:  strings.TrimSpace(os.Getenv("EMAIL_TEMPLATE")),
+
+		SSOUserFirstName: strings.TrimSpace(os.Getenv("SSO_USER_FIRST_NAME")),
+		SSOUserLastName:  strings.TrimSpace(os.Getenv("SSO_USER_LAST_NAME")),
 	}
 
 	if cfg.EmailTemplate == "" {
 		cfg.EmailTemplate = DefaultEmailTemplate
+	}
+	if cfg.SSOUserFirstName == "" {
+		cfg.SSOUserFirstName = DefaultSSOUserFirstName
+	}
+	if cfg.SSOUserLastName == "" {
+		cfg.SSOUserLastName = DefaultSSOUserLastName
 	}
 
 	if err := cfg.validate(); err != nil {

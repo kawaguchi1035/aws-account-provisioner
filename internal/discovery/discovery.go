@@ -46,6 +46,7 @@ type OrganizationsAPI interface {
 // ServiceCatalogAPI is the slice of Service Catalog this package uses.
 type ServiceCatalogAPI interface {
 	SearchProducts(ctx context.Context, params *servicecatalog.SearchProductsInput, optFns ...func(*servicecatalog.Options)) (*servicecatalog.SearchProductsOutput, error)
+	ListProvisioningArtifacts(ctx context.Context, params *servicecatalog.ListProvisioningArtifactsInput, optFns ...func(*servicecatalog.Options)) (*servicecatalog.ListProvisioningArtifactsOutput, error)
 }
 
 // Deps holds the AWS clients Load needs.
@@ -72,6 +73,10 @@ type Catalog struct {
 	IdentityStoreID         string
 	AccountFactoryProductID string
 
+	// AccountFactoryArtifactID is the provisioning artifact (product version)
+	// used to launch new accounts.
+	AccountFactoryArtifactID string
+
 	permissionSets map[string]string // name -> ARN
 	users          map[string]string // user name -> ID
 	groups         map[string]string // display name -> ID
@@ -86,6 +91,11 @@ func Load(ctx context.Context, deps Deps) (*Catalog, error) {
 	}
 
 	productID, err := findAccountFactoryProduct(ctx, deps.ServiceCatalog)
+	if err != nil {
+		return nil, err
+	}
+
+	artifactID, err := findActiveArtifact(ctx, deps.ServiceCatalog, productID)
 	if err != nil {
 		return nil, err
 	}
@@ -111,13 +121,14 @@ func Load(ctx context.Context, deps Deps) (*Catalog, error) {
 	}
 
 	return &Catalog{
-		InstanceARN:             instanceARN,
-		IdentityStoreID:         identityStoreID,
-		AccountFactoryProductID: productID,
-		permissionSets:          permissionSets,
-		users:                   users,
-		groups:                  groups,
-		ous:                     ous,
+		InstanceARN:              instanceARN,
+		IdentityStoreID:          identityStoreID,
+		AccountFactoryProductID:  productID,
+		AccountFactoryArtifactID: artifactID,
+		permissionSets:           permissionSets,
+		users:                    users,
+		groups:                   groups,
+		ous:                      ous,
 	}, nil
 }
 
@@ -153,6 +164,25 @@ func findAccountFactoryProduct(ctx context.Context, api ServiceCatalogAPI) (stri
 	}
 	return "", fmt.Errorf("product %q not found in Service Catalog; check that Control Tower is enabled in this region "+
 		"and that the caller has access to the Account Factory portfolio", AccountFactoryProductName)
+}
+
+// findActiveArtifact picks the most recent active version of the product.
+// Account Factory is updated by Control Tower over time, and launching an
+// inactive version fails, so the newest active one is always the right choice.
+func findActiveArtifact(ctx context.Context, api ServiceCatalogAPI, productID string) (string, error) {
+	out, err := api.ListProvisioningArtifacts(ctx, &servicecatalog.ListProvisioningArtifactsInput{
+		ProductId: aws.String(productID),
+	})
+	if err != nil {
+		return "", fmt.Errorf("list provisioning artifacts: %w", err)
+	}
+	for i := len(out.ProvisioningArtifactDetails) - 1; i >= 0; i-- {
+		a := out.ProvisioningArtifactDetails[i]
+		if aws.ToBool(a.Active) && a.Id != nil {
+			return aws.ToString(a.Id), nil
+		}
+	}
+	return "", fmt.Errorf("no active provisioning artifact found for the Account Factory product")
 }
 
 func loadPermissionSets(ctx context.Context, api SSOAdminAPI, instanceARN string) (map[string]string, error) {

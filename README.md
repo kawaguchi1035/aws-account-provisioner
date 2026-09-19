@@ -42,7 +42,7 @@ aws-account-provisioner --init
 # 2. アカウントを作らずに検証だけ行う
 aws-account-provisioner --dry-run input.tsv
 
-# 3. 実行
+# 3. 実行（確認プロンプトが出ます。--yes で省略可）
 aws-account-provisioner input.tsv
 ```
 
@@ -65,6 +65,8 @@ aws+dev@example.com	dev-account	Sandbox (ou-xxxx-xxxxxxxx)	USER	taro	ReadOnlyAcc
 | `ROOT_ACCOUNT_ID` | 必須 | — | Organizations管理アカウントのID（12桁） |
 | `ASSUME_ROLE_NAME` | 任意 | — | 設定するとこのロールをAssumeRoleする。未設定ならプロファイルの認証情報をそのまま使う |
 | `EMAIL_TEMPLATE` | 任意 | `aws+{account_name}@example.com` | `--init` が使うルートメールのテンプレート |
+| `SSO_USER_FIRST_NAME` | 任意 | `Admin` | Account Factory が作る初期 Identity Center ユーザーの名 |
+| `SSO_USER_LAST_NAME` | 任意 | `User` | 同じく姓 |
 | `AWS_PROFILE` | 任意 | — | `--profile` で上書き可能 |
 
 #### 認証モード
@@ -86,7 +88,7 @@ aws+dev@example.com	dev-account	Sandbox (ou-xxxx-xxxxxxxx)	USER	taro	ReadOnlyAcc
 
 - **アカウント作成は取り消せません。** 必ず `--dry-run` を先に実行してください
 - **ルートメールの重複は事前検証できません。** AWSに該当するAPIが存在しないため、重複は作成時に判明し、失敗として報告されます
-- **`Ctrl+C` はポーリングを止めるだけです。** 送信済みの `ProvisionProduct` リクエストはAWS側で処理が継続します。その場合はツールが明示的に警告を表示します
+- **`Ctrl+C` はポーリングを止めるだけです。** 送信済みの `ProvisionProduct` リクエストはAWS側で処理が継続します。その場合はツールが明示的に警告を表示するので、コンソールで状態を確認してから再実行してください
 
 ## ドキュメント
 

@@ -14,7 +14,10 @@ import (
 // it in from .env.
 func isolate(t *testing.T) {
 	t.Helper()
-	for _, key := range []string{"ROOT_ACCOUNT_ID", "ASSUME_ROLE_NAME", "EMAIL_TEMPLATE"} {
+	for _, key := range []string{
+		"ROOT_ACCOUNT_ID", "ASSUME_ROLE_NAME", "EMAIL_TEMPLATE",
+		"SSO_USER_FIRST_NAME", "SSO_USER_LAST_NAME",
+	} {
 		t.Setenv(key, "")
 		if err := os.Unsetenv(key); err != nil {
 			t.Fatalf("unset %s: %v", key, err)
@@ -34,8 +37,10 @@ func TestLoad(t *testing.T) {
 			name: "minimal configuration applies the default template",
 			env:  map[string]string{"ROOT_ACCOUNT_ID": "123456789012"},
 			want: Config{
-				RootAccountID: "123456789012",
-				EmailTemplate: DefaultEmailTemplate,
+				RootAccountID:    "123456789012",
+				EmailTemplate:    DefaultEmailTemplate,
+				SSOUserFirstName: DefaultSSOUserFirstName,
+				SSOUserLastName:  DefaultSSOUserLastName,
 			},
 		},
 		{
@@ -46,17 +51,21 @@ func TestLoad(t *testing.T) {
 				"EMAIL_TEMPLATE":   "aws.member+{account_name}@example.com",
 			},
 			want: Config{
-				RootAccountID:  "123456789012",
-				AssumeRoleName: "OrganizationAccountAccessRole",
-				EmailTemplate:  "aws.member+{account_name}@example.com",
+				RootAccountID:    "123456789012",
+				AssumeRoleName:   "OrganizationAccountAccessRole",
+				EmailTemplate:    "aws.member+{account_name}@example.com",
+				SSOUserFirstName: DefaultSSOUserFirstName,
+				SSOUserLastName:  DefaultSSOUserLastName,
 			},
 		},
 		{
 			name: "surrounding whitespace is trimmed",
 			env:  map[string]string{"ROOT_ACCOUNT_ID": "  123456789012  "},
 			want: Config{
-				RootAccountID: "123456789012",
-				EmailTemplate: DefaultEmailTemplate,
+				RootAccountID:    "123456789012",
+				EmailTemplate:    DefaultEmailTemplate,
+				SSOUserFirstName: DefaultSSOUserFirstName,
+				SSOUserLastName:  DefaultSSOUserLastName,
 			},
 		},
 		{
