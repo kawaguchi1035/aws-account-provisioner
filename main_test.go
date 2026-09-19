@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"context"
+	"strings"
+	"testing"
+)
 
 func TestParseArgs(t *testing.T) {
 	tests := []struct {
@@ -66,5 +70,31 @@ func TestParseArgs(t *testing.T) {
 				t.Errorf("inputPath = %q, want %q", got.inputPath, tt.wantInput)
 			}
 		})
+	}
+}
+
+func TestRunVersion(t *testing.T) {
+	var out strings.Builder
+	if err := run(context.Background(), []string{"--version"}, &out); err != nil {
+		t.Fatalf("run() returned unexpected error: %v", err)
+	}
+	if !strings.HasPrefix(out.String(), "aws-account-provisioner ") {
+		t.Errorf("output = %q, want the version line", out.String())
+	}
+}
+
+func TestPluralize(t *testing.T) {
+	tests := []struct {
+		n    int
+		want string
+	}{
+		{n: 0, want: "0 accounts"},
+		{n: 1, want: "1 account"},
+		{n: 2, want: "2 accounts"},
+	}
+	for _, tt := range tests {
+		if got := pluralize(tt.n, "account"); got != tt.want {
+			t.Errorf("pluralize(%d) = %q, want %q", tt.n, got, tt.want)
+		}
 	}
 }
