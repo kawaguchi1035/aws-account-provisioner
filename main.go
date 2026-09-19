@@ -12,15 +12,21 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"strings"
+	"sync"
 	"syscall"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/servicecatalog"
+	"github.com/aws/aws-sdk-go-v2/service/ssoadmin"
 
+	"github.com/kawaguchi1035/aws-account-provisioner/internal/assigner"
 	"github.com/kawaguchi1035/aws-account-provisioner/internal/awsauth"
 	"github.com/kawaguchi1035/aws-account-provisioner/internal/config"
 	"github.com/kawaguchi1035/aws-account-provisioner/internal/discovery"
 	"github.com/kawaguchi1035/aws-account-provisioner/internal/inputfile"
 	"github.com/kawaguchi1035/aws-account-provisioner/internal/provisioner"
+	"github.com/kawaguchi1035/aws-account-provisioner/internal/report"
 	"github.com/kawaguchi1035/aws-account-provisioner/internal/wizard"
 )
 
@@ -118,6 +124,7 @@ type plan struct {
 	catalog        *discovery.Catalog
 	config         config.Config
 	serviceCatalog *servicecatalog.Client
+	ssoAdmin       *ssoadmin.Client
 }
 
 // preflight performs every check that can be made without creating anything:
@@ -156,6 +163,7 @@ func preflight(ctx context.Context, opts options) (plan, error) {
 		catalog:        catalog,
 		config:         cfg,
 		serviceCatalog: servicecatalog.NewFromConfig(awsCfg),
+		ssoAdmin:       ssoadmin.NewFromConfig(awsCfg),
 	}, nil
 }
 
@@ -287,6 +295,21 @@ func runProvision(ctx context.Context, opts options, out io.Writer) error {
 		return err
 	}
 
+	// Progress arrives from several goroutines at once, so serialise it.
+	var progressMu sync.Mutex
+	progress := func(accountName, message string) {
+		progressMu.Lock()
+		defer progressMu.Unlock()
+		pr.printf("  [%s] %s\n", accountName, message)
+	}
+
+	assign := assigner.Assigner{
+		API:         p.ssoAdmin,
+		Resolver:    p.catalog,
+		InstanceARN: p.catalog.InstanceARN,
+		Progress:    progress,
+	}
+
 	pr.printf("Creating accounts. This takes 20-40 minutes per account.\n\n")
 	results := provisioner.Provisioner{
 		API:              p.serviceCatalog,
@@ -294,9 +317,8 @@ func runProvision(ctx context.Context, opts options, out io.Writer) error {
 		ArtifactID:       p.catalog.AccountFactoryArtifactID,
 		SSOUserFirstName: p.config.SSOUserFirstName,
 		SSOUserLastName:  p.config.SSOUserLastName,
-		Progress: func(accountName, message string) {
-			pr.printf("  [%s] %s\n", accountName, message)
-		},
+		Progress:         progress,
+		OnCreated:        assign.Assign,
 	}.Provision(ctx, p.accounts)
 
 	return reportResults(out, results)
@@ -318,22 +340,36 @@ func confirmProvision(opts options, accounts int) error {
 	return nil
 }
 
+// resultsDir is where the timestamped result file is written.
+const resultsDir = "results"
+
 func reportResults(out io.Writer, results []provisioner.Result) error {
 	pr := printer{out}
 
-	var succeeded, failed int
+	var succeeded, failed, partial int
 	pr.printf("\nResults:\n")
 	for _, r := range results {
 		switch {
-		case r.Succeeded():
-			succeeded++
-			pr.printf("  OK      %-24s %s\n", r.Account.Name, r.AccountID)
-		default:
+		case !r.Succeeded():
 			failed++
-			pr.printf("  FAILED  %-24s %v\n", r.Account.Name, r.Err)
+			pr.printf("  FAILED   %-24s %v\n", r.Account.Name, r.Err)
+		case r.AfterErr != nil:
+			partial++
+			pr.printf("  PARTIAL  %-24s %s\n", r.Account.Name, r.AccountID)
+			pr.printf("           created, but %v\n", r.AfterErr)
+		default:
+			succeeded++
+			pr.printf("  OK       %-24s %s\n", r.Account.Name, r.AccountID)
 		}
 	}
-	pr.printf("\n%d succeeded, %d failed\n", succeeded, failed)
+	pr.printf("\n%d succeeded, %d partial, %d failed\n", succeeded, partial, failed)
+
+	if path, err := report.WriteFile(resultsDir, time.Now(), resultRows(results)); err != nil {
+		// Losing the result file must not mask the outcome of the run itself.
+		pr.printf("\nWarning: could not write the result file: %v\n", err)
+	} else {
+		pr.printf("Wrote %s\n", path)
+	}
 
 	// Anything still in flight on the AWS side deserves an explicit warning:
 	// stopping the tool does not stop Control Tower.
@@ -348,5 +384,40 @@ func reportResults(out io.Writer, results []provisioner.Result) error {
 	if failed > 0 {
 		return fmt.Errorf("%d of %d accounts could not be created", failed, len(results))
 	}
+	if partial > 0 {
+		return fmt.Errorf("%d of %d accounts were created but not fully assigned", partial, len(results))
+	}
 	return nil
+}
+
+func resultRows(results []provisioner.Result) []report.Row {
+	rows := make([]report.Row, 0, len(results))
+	for _, r := range results {
+		row := report.Row{
+			OU:           fmt.Sprintf("%s (%s)", r.Account.OUName, r.Account.OUID),
+			AccountID:    r.AccountID,
+			AccountName:  r.Account.Name,
+			AccountEmail: r.Account.Email,
+			Status:       report.StatusSucceeded,
+		}
+		switch {
+		case !r.Succeeded():
+			row.Status = report.StatusFailed
+			row.ErrorMessage = errorText(r.Err)
+		case r.AfterErr != nil:
+			// The account exists, so it is not a failure, but the problem must
+			// still be recorded.
+			row.ErrorMessage = errorText(r.AfterErr)
+		}
+		rows = append(rows, row)
+	}
+	return rows
+}
+
+// errorText flattens an error onto one line so it survives a TSV cell.
+func errorText(err error) string {
+	if err == nil {
+		return ""
+	}
+	return strings.Join(strings.Fields(err.Error()), " ")
 }
