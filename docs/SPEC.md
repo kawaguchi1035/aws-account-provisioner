@@ -81,7 +81,7 @@ aws+stg@example.com	stg-account	Staging (ou-xxxx-xxxxxxxx)	GROUP	Developers	Admi
 | 変数 | 必須 | 説明 |
 |---|---|---|
 | `ROOT_ACCOUNT_ID` | 必須 | Organizations管理アカウントのID（12桁） |
-| `ASSUME_ROLE_NAME` | 任意 | 管理アカウントで引き受けるロール名。既定値 `AWSControlTowerExecution` |
+| `ASSUME_ROLE_NAME` | 任意 | 管理アカウントで引き受けるロール名。既定値 `AdministratorAccessRole` |
 | `EMAIL_TEMPLATE` | 任意 | ウィザードがルートメールを導出するためのテンプレート。既定値 `aws+{account_name}@example.com` |
 | `AWS_PROFILE` | 任意 | `--profile` で上書きされる |
 
@@ -139,7 +139,14 @@ results/
 
 ## 10. 必要なIAM権限
 
-AssumeRole先のロールに最低限必要な権限。
+権限は2層に分かれる。
+
+| 層 | 対象 | 必要なもの |
+|---|---|---|
+| 1 | 実行者のSSOプロファイル（`--profile`） | `ROOT_ACCOUNT_ID` の `ASSUME_ROLE_NAME` に対する `sts:AssumeRole` |
+| 2 | 管理アカウント側のロール（`ASSUME_ROLE_NAME`） | 下表のアクション |
+
+本ツールのAPIコールはすべて**層2のロールの権限**で実行される。プロファイル自身に Organizations や Identity Center の権限は不要で、AssumeRole さえできればよい。
 
 | サービス | アクション |
 |---|---|

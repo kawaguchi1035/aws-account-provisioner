@@ -63,7 +63,7 @@ aws+dev@example.com	dev-account	Sandbox (ou-xxxx-xxxxxxxx)	USER	taro	ReadOnlyAcc
 | 変数 | 必須 | 既定値 | 説明 |
 |---|---|---|---|
 | `ROOT_ACCOUNT_ID` | 必須 | — | Organizations管理アカウントのID（12桁） |
-| `ASSUME_ROLE_NAME` | 任意 | `AWSControlTowerExecution` | 管理アカウントで引き受けるロール名 |
+| `ASSUME_ROLE_NAME` | 任意 | `AdministratorAccessRole` | 管理アカウントで引き受けるロール名 |
 | `EMAIL_TEMPLATE` | 任意 | `aws+{account_name}@example.com` | `--init` が使うルートメールのテンプレート |
 | `AWS_PROFILE` | 任意 | — | `--profile` で上書き可能 |
 
