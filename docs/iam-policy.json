@@ -1,0 +1,49 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadOrganizationStructure",
+      "Effect": "Allow",
+      "Action": [
+        "organizations:ListRoots",
+        "organizations:ListOrganizationalUnitsForParent",
+        "organizations:DescribeAccount"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ProvisionAccountsViaAccountFactory",
+      "Effect": "Allow",
+      "Action": [
+        "servicecatalog:SearchProducts",
+        "servicecatalog:DescribeProduct",
+        "servicecatalog:ProvisionProduct",
+        "servicecatalog:DescribeRecord"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "AssignPermissionSets",
+      "Effect": "Allow",
+      "Action": [
+        "sso:ListInstances",
+        "sso:ListPermissionSets",
+        "sso:DescribePermissionSet",
+        "sso:CreateAccountAssignment",
+        "sso:DescribeAccountAssignmentCreationStatus"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ResolveIdentityStorePrincipals",
+      "Effect": "Allow",
+      "Action": [
+        "identitystore:ListUsers",
+        "identitystore:ListGroups",
+        "identitystore:GetUserId",
+        "identitystore:GetGroupId"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

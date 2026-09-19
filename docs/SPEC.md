@@ -180,3 +180,25 @@ APIコールはすべて層2のロールの権限で実行されるため、プ�
 | 設定 | `godotenv` |
 | テスト | 標準ライブラリ `testing` |
 | Lint | `golangci-lint`（CIで実行） |
+
+### プロジェクト構成
+
+```
+.
+├── main.go              # エントリポイント（フラグ解析とモード振り分け）
+├── internal/
+│   ├── config/          # 環境変数・.env の読み込み
+│   ├── awsauth/         # 認証、AssumeRole、到達先アカウントの検証
+│   ├── inputfile/       # TSV の読み書きと形式検証
+│   ├── discovery/       # Account Factory / Identity Center の検出とキャッシュ
+│   ├── provisioner/     # アカウント作成と並列ポーリング
+│   ├── assigner/        # 許可セットの割り当て
+│   ├── wizard/          # 対話ウィザード（--init）
+│   └── report/          # サマリ表示と結果 TSV 出力
+├── docs/
+│   ├── SPEC.md
+│   └── iam-policy.json  # AssumeRole 先ロール用のポリシー例
+└── .github/workflows/ci.yml
+```
+
+`main.go` をモジュールルートに置くことで、`go install github.com/kawaguchi1035/aws-account-provisioner@latest` がそのままバイナリ名 `aws-account-provisioner` を生成する。`internal/` 配下のパッケージは各機能の実装時に追加する。
