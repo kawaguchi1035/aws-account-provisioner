@@ -60,7 +60,7 @@ func parseArgs(args []string) (options, error) {
 	fs.StringVar(&opts.profile, "profile", "", "AWS profile used to reach the management account")
 	fs.BoolVar(&opts.showVersion, "version", false, "print the version and exit")
 	fs.Usage = func() {
-		fmt.Fprint(fs.Output(), usage)
+		_, _ = fmt.Fprint(fs.Output(), usage)
 		fs.PrintDefaults()
 	}
 
