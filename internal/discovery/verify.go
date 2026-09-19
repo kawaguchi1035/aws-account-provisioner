@@ -59,7 +59,7 @@ func (c *Catalog) Verify(accounts []inputfile.Account) error {
 			if _, ok := c.PermissionSetARN(a.PermissionSetName); !ok {
 				problems = append(problems, fmt.Sprintf(
 					"line %d: permission set %q does not exist%s",
-					a.Line, a.PermissionSetName, suggest(a.PermissionSetName, c.permissionSetNames())))
+					a.Line, a.PermissionSetName, suggest(a.PermissionSetName, c.PermissionSetNames())))
 			}
 			if _, ok := c.PrincipalID(a.PrincipalType, a.PrincipalName); !ok {
 				problems = append(problems, fmt.Sprintf(
@@ -76,13 +76,31 @@ func (c *Catalog) Verify(accounts []inputfile.Account) error {
 	return fmt.Errorf("%s found in AWS:\n  %s", pluralize(len(problems), "problem"), strings.Join(problems, "\n  "))
 }
 
-func (c *Catalog) permissionSetNames() []string { return sortedKeys(c.permissionSets) }
+// PermissionSetNames returns every permission set name, sorted.
+func (c *Catalog) PermissionSetNames() []string { return sortedKeys(c.permissionSets) }
+
+// GroupNames returns every Identity Center group name, sorted.
+func (c *Catalog) GroupNames() []string { return sortedKeys(c.groups) }
+
+// UserNames returns every Identity Center user name, sorted.
+func (c *Catalog) UserNames() []string { return sortedKeys(c.users) }
+
+// OUChoices returns every organizational unit as "Name (ou-xxxx-xxxxxxxx)",
+// which is the form the input file uses.
+func (c *Catalog) OUChoices() []string {
+	choices := make([]string, 0, len(c.ous))
+	for id, name := range c.ous {
+		choices = append(choices, fmt.Sprintf("%s (%s)", name, id))
+	}
+	sort.Strings(choices)
+	return choices
+}
 
 func (c *Catalog) principalNames(t inputfile.PrincipalType) []string {
 	if t == inputfile.PrincipalGroup {
-		return sortedKeys(c.groups)
+		return c.GroupNames()
 	}
-	return sortedKeys(c.users)
+	return c.UserNames()
 }
 
 func sortedKeys(m map[string]string) []string {

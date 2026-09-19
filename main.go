@@ -16,6 +16,7 @@ import (
 	"github.com/kawaguchi1035/aws-account-provisioner/internal/config"
 	"github.com/kawaguchi1035/aws-account-provisioner/internal/discovery"
 	"github.com/kawaguchi1035/aws-account-provisioner/internal/inputfile"
+	"github.com/kawaguchi1035/aws-account-provisioner/internal/wizard"
 )
 
 // version is overridden at build time via -ldflags.
@@ -50,7 +51,7 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 		printer{out}.printf("aws-account-provisioner %s\n", version)
 		return nil
 	case opts.init:
-		return runInit(opts)
+		return runInit(ctx, opts, out)
 	case opts.dryRun:
 		return runDryRun(ctx, opts, out)
 	default:
@@ -189,5 +190,72 @@ func pluralize(n int, noun string) string {
 	return fmt.Sprintf("%d %ss", n, noun)
 }
 
-func runInit(_ options) error      { return errNotImplemented }
+// defaultInputPath is where --init writes its result.
+const defaultInputPath = "input.tsv"
+
+func runInit(ctx context.Context, opts options, out io.Writer) error {
+	pr := printer{out}
+
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+
+	awsCfg, err := awsauth.Resolve(ctx, awsauth.Options{
+		Profile:        opts.profile,
+		RootAccountID:  cfg.RootAccountID,
+		AssumeRoleName: cfg.AssumeRoleName,
+	})
+	if err != nil {
+		return err
+	}
+
+	pr.printf("Reading organizational units, permission sets and principals...\n\n")
+	catalog, err := discovery.Load(ctx, discovery.NewDeps(awsCfg))
+	if err != nil {
+		return err
+	}
+
+	prompter := wizard.TerminalPrompter{}
+	accounts, err := wizard.Wizard{
+		Prompter: prompter,
+		Catalog:  catalog,
+		Email:    cfg,
+		Out:      out,
+	}.Run()
+	if err != nil {
+		return err
+	}
+
+	pr.printf("\nThe following will be written to %s:\n", defaultInputPath)
+	wizard.Summarize(out, accounts)
+
+	if err := confirmOverwrite(prompter, defaultInputPath); err != nil {
+		return err
+	}
+	if err := inputfile.WriteFile(defaultInputPath, accounts); err != nil {
+		return err
+	}
+
+	pr.printf("\nWrote %s. Review it, then run:\n  aws-account-provisioner --dry-run %s\n",
+		defaultInputPath, defaultInputPath)
+	return nil
+}
+
+// confirmOverwrite asks before replacing an existing input file, so a wizard
+// run cannot silently discard one that is already in use.
+func confirmOverwrite(p wizard.Prompter, path string) error {
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	ok, err := p.Confirm(fmt.Sprintf("%s already exists. Overwrite?", path))
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("%s already exists, nothing was written", path)
+	}
+	return nil
+}
+
 func runProvision(_ options) error { return errNotImplemented }
