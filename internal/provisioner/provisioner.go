@@ -53,13 +53,24 @@ type Provisioner struct {
 	// Progress, when set, is called as each account changes state. It may be
 	// called from several goroutines, so implementations must be safe to share.
 	Progress func(accountName, message string)
+
+	// OnCreated, when set, runs against each account as soon as it becomes
+	// available, rather than after the whole batch finishes. Its error is
+	// reported separately: the account exists either way.
+	OnCreated func(ctx context.Context, account inputfile.Account, accountID string) error
 }
 
 // Result is the outcome for one account.
 type Result struct {
 	Account   inputfile.Account
 	AccountID string
-	Err       error
+
+	// Err is a failure to create the account.
+	Err error
+
+	// AfterErr is a failure of the OnCreated step. The account was still
+	// created, so the two are kept apart.
+	AfterErr error
 }
 
 // Succeeded reports whether the account was created.
@@ -101,9 +112,14 @@ func (p Provisioner) Provision(ctx context.Context, accounts []inputfile.Account
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
+
 			accountID, err := p.wait(ctx, recordIDs[i], accounts[i].Name)
 			results[i].AccountID = accountID
 			results[i].Err = err
+			if err != nil || p.OnCreated == nil {
+				return
+			}
+			results[i].AfterErr = p.OnCreated(ctx, accounts[i], accountID)
 		}(i)
 	}
 	wg.Wait()

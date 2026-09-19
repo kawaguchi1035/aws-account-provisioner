@@ -330,3 +330,55 @@ func TestProvisionReportsProgressOncePerStatusChange(t *testing.T) {
 		}
 	}
 }
+
+func TestProvisionRunsOnCreatedForEachAccount(t *testing.T) {
+	api := newScriptedAPI()
+	api.accountIDs["rec-dev"] = "111111111111"
+	api.accountIDs["rec-stg"] = "222222222222"
+
+	var mu sync.Mutex
+	seen := map[string]string{}
+
+	p := newProvisioner(api)
+	p.OnCreated = func(_ context.Context, account inputfile.Account, accountID string) error {
+		mu.Lock()
+		defer mu.Unlock()
+		seen[account.Name] = accountID
+		if account.Name == "stg" {
+			return errors.New("assignment failed")
+		}
+		return nil
+	}
+	results := p.Provision(context.Background(), []inputfile.Account{testAccount("dev"), testAccount("stg")})
+
+	if seen["dev"] != "111111111111" || seen["stg"] != "222222222222" {
+		t.Errorf("OnCreated saw %v, want both accounts with their IDs", seen)
+	}
+	if results[0].AfterErr != nil {
+		t.Errorf("dev reported AfterErr = %v, want nil", results[0].AfterErr)
+	}
+	// A failing OnCreated must not turn a created account into a failed one.
+	if !results[1].Succeeded() {
+		t.Error("stg was reported as not created even though creation succeeded")
+	}
+	if results[1].AfterErr == nil {
+		t.Error("the OnCreated failure was not recorded")
+	}
+}
+
+func TestProvisionSkipsOnCreatedWhenCreationFailed(t *testing.T) {
+	api := newScriptedAPI()
+	api.statuses["rec-dev"] = []sctypes.RecordStatus{sctypes.RecordStatusFailed}
+
+	called := false
+	p := newProvisioner(api)
+	p.OnCreated = func(context.Context, inputfile.Account, string) error {
+		called = true
+		return nil
+	}
+	p.Provision(context.Background(), []inputfile.Account{testAccount("dev")})
+
+	if called {
+		t.Error("OnCreated ran for an account that was never created")
+	}
+}
