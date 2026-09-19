@@ -63,16 +63,24 @@ aws+dev@example.com	dev-account	Sandbox (ou-xxxx-xxxxxxxx)	USER	taro	ReadOnlyAcc
 | 変数 | 必須 | 既定値 | 説明 |
 |---|---|---|---|
 | `ROOT_ACCOUNT_ID` | 必須 | — | Organizations管理アカウントのID（12桁） |
-| `ASSUME_ROLE_NAME` | 任意 | `AdministratorAccessRole` | 管理アカウントで引き受けるロール名 |
+| `ASSUME_ROLE_NAME` | 任意 | — | 設定するとこのロールをAssumeRoleする。未設定ならプロファイルの認証情報をそのまま使う |
 | `EMAIL_TEMPLATE` | 任意 | `aws+{account_name}@example.com` | `--init` が使うルートメールのテンプレート |
 | `AWS_PROFILE` | 任意 | — | `--profile` で上書き可能 |
+
+#### 認証モード
+
+多くの場合、**管理アカウントを指すプロファイルをそのまま渡すだけで動きます**（`ASSUME_ROLE_NAME` は不要）。
+
+踏み台ロールを経由する運用では `ASSUME_ROLE_NAME` を設定してください。`arn:aws:iam::{ROOT_ACCOUNT_ID}:role/{ASSUME_ROLE_NAME}` をAssumeRoleし、以降のAPIをそのロールの権限で実行します。
+
+どちらのモードでも起動時に `sts:GetCallerIdentity` で到達先アカウントを確認し、`ROOT_ACCOUNT_ID` と一致しなければ何もせず中断します。プロファイルの取り違えを防ぐためのガードです。
 
 ## 動作要件
 
 - Go 1.23以降
 - AWS Control Tower が有効化され、Account Factory が利用可能であること
 - IAM Identity Center が有効化されていること
-- 管理アカウントへAssumeRoleできるAWSプロファイル（[必要な権限](docs/SPEC.md#10-必要なiam権限)を参照）
+- 管理アカウントに到達できるAWSプロファイル（直接、または踏み台ロール経由。[必要な権限](docs/SPEC.md#10-必要なiam権限)を参照）
 
 ## 注意事項
 

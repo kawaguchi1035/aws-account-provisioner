@@ -33,7 +33,7 @@ AWSアカウントの作成には20〜40分かかり、かつ取り消しがで�
 | Go | 1.23以降 |
 | AWS Control Tower | 有効化済みで、Account Factory が Service Catalog 製品として存在すること |
 | IAM Identity Center | 管理アカウントで有効化済みであること |
-| AWSプロファイル | Organizations管理アカウントのロールをAssumeRoleできるSSOプロファイル |
+| AWSプロファイル | Organizations管理アカウントに到達できるプロファイル（直接、または踏み台ロール経由。§6.1参照） |
 
 ## 4. コマンド
 
@@ -81,11 +81,24 @@ aws+stg@example.com	stg-account	Staging (ou-xxxx-xxxxxxxx)	GROUP	Developers	Admi
 | 変数 | 必須 | 説明 |
 |---|---|---|
 | `ROOT_ACCOUNT_ID` | 必須 | Organizations管理アカウントのID（12桁） |
-| `ASSUME_ROLE_NAME` | 任意 | 管理アカウントで引き受けるロール名。既定値 `AdministratorAccessRole` |
+| `ASSUME_ROLE_NAME` | 任意 | 管理アカウントで引き受けるロール名。**未設定ならAssumeRoleを行わない**（§6.1参照） |
 | `EMAIL_TEMPLATE` | 任意 | ウィザードがルートメールを導出するためのテンプレート。既定値 `aws+{account_name}@example.com` |
 | `AWS_PROFILE` | 任意 | `--profile` で上書きされる |
 
 `EMAIL_TEMPLATE` は `{account_name}` プレースホルダに対応し、小文字化したアカウント名で置換される。
+
+### 6.1 認証モード
+
+`ASSUME_ROLE_NAME` の有無で挙動が変わる。
+
+| `ASSUME_ROLE_NAME` | 挙動 | 想定するケース |
+|---|---|---|
+| 未設定（既定） | AssumeRoleを行わず、プロファイルの認証情報をそのまま使う | プロファイルが管理アカウントを直接指している |
+| 設定あり | `arn:aws:iam::{ROOT_ACCOUNT_ID}:role/{ASSUME_ROLE_NAME}` をAssumeRoleし、得た一時認証情報で以降のAPIを実行する | 踏み台ロールを経由する運用 |
+
+いずれのモードでも、起動時に `sts:GetCallerIdentity` を呼び、**実際に到達しているアカウントが `ROOT_ACCOUNT_ID` と一致するかを検証する**。一致しない場合は何もせず中断する。プロファイルの取り違えによる誤ったアカウントへの操作を防ぐためのガードである。
+
+AssumeRole時の `RoleSessionName` は `aws-account-provisioner` を用いる。CloudTrail上でツール起因の操作を識別できるようにするため。
 
 ## 7. 処理フロー
 
@@ -93,7 +106,7 @@ aws+stg@example.com	stg-account	Staging (ou-xxxx-xxxxxxxx)	GROUP	Developers	Admi
 認証 → 検出 → 検証 → 作成 → ポーリング → 割り当て → 結果出力
 ```
 
-1. **認証** — 指定プロファイルで `ROOT_ACCOUNT_ID` の `ASSUME_ROLE_NAME` をAssumeRole
+1. **認証** — プロファイルを読み込み、`ASSUME_ROLE_NAME` があればAssumeRole（§6.1）。続けて `sts:GetCallerIdentity` で到達先アカウントが `ROOT_ACCOUNT_ID` と一致することを確認
 2. **検出** — Account Factory 製品（Service Catalog）と Identity Center インスタンスを特定。許可セットをページネーションで取得し、各ARNを名前に解決して**キャッシュ**。ユーザー・グループ・OUの一覧も取得する
 3. **検証** — TSVの形式を検査したうえで、参照しているOU・許可セット・グループ・ユーザーの実在を確認
 4. **作成** — アカウントごとに `ProvisionProduct` を一括送信
@@ -139,14 +152,22 @@ results/
 
 ## 10. 必要なIAM権限
 
+必要な権限は認証モード（§6.1）によって置き場所が変わる。
+
+**AssumeRoleしない場合（既定）**
+プロファイルの権限で全APIを実行するため、プロファイル自身が下表のアクションを持つ必要がある。
+
+**AssumeRoleする場合**
 権限は2層に分かれる。
 
 | 層 | 対象 | 必要なもの |
 |---|---|---|
-| 1 | 実行者のSSOプロファイル（`--profile`） | `ROOT_ACCOUNT_ID` の `ASSUME_ROLE_NAME` に対する `sts:AssumeRole` |
-| 2 | 管理アカウント側のロール（`ASSUME_ROLE_NAME`） | 下表のアクション |
+| 1 | 実行者のプロファイル | `ROOT_ACCOUNT_ID` の `ASSUME_ROLE_NAME` に対する `sts:AssumeRole` のみ |
+| 2 | 管理アカウント側のロール | 下表のアクション |
 
-本ツールのAPIコールはすべて**層2のロールの権限**で実行される。プロファイル自身に Organizations や Identity Center の権限は不要で、AssumeRole さえできればよい。
+APIコールはすべて層2のロールの権限で実行されるため、プロファイル自身に Organizations や Identity Center の権限は不要になる。
+
+なお `sts:GetCallerIdentity` はどちらのモードでも必要だが、明示的な許可なしに常に呼び出せる。
 
 | サービス | アクション |
 |---|---|
