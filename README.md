@@ -1,53 +1,54 @@
 # aws-account-provisioner
 
-Provision AWS accounts through **Control Tower Account Factory** and assign
-**IAM Identity Center** permission sets — in a single command.
+**Control Tower Account Factory** によるAWSアカウント作成と、**IAM Identity Center** の許可セット割り当てを、1コマンドで実行するCLIツールです。
 
-> 🚧 **Work in progress.** The design is settled ([docs/SPEC.md](docs/SPEC.md)); implementation is underway.
+> 🚧 **開発中。** 仕様は確定済み（[docs/SPEC.md](docs/SPEC.md)）、実装を進めています。
 
-## Why
+## 背景
 
-Creating an AWS account takes 20–40 minutes and cannot be undone. Doing it by hand for a batch
-of accounts means a long afternoon of console work, and a typo in a permission set name only
-surfaces once the account already exists.
+もともとAWSアカウントの払い出しは、マネジメントコンソールを画面操作して行っていました。しかし運用を重ねるうちに、いくつかの課題が見えてきました。
 
-This tool inverts that. Everything — OUs, permission sets, groups, users — is validated before a
-single account is created, provisioning runs concurrently, and assignments are applied the moment
-each account becomes available.
+**繰り返し操作が多い**
+ルートメールアドレスの命名規則を毎回手で組み立て、割り当てるユーザーや許可セットも同じ組み合わせを何度も選び直す。定型作業であるにもかかわらず、手作業ゆえに表記ゆれや取り違えが起こり得ます。
 
-## Features
+**手順が2つに分かれている**
+アカウントを作って終わりではなく、そのあとIAM Identity Centerでユーザーやグループに許可セットを割り当てる作業が別途必要でした。Account Factoryによるアカウント作成には20〜40分かかるため、完了を待ってから次の画面へ移る、という待ち時間の分断も発生します。
 
-- **Dry run first.** `--dry-run` validates the input file and confirms every referenced OU,
-  permission set, group and user exists — creating nothing.
-- **Batch provisioning.** Multiple accounts from one TSV, polled concurrently with live progress.
-- **Assignments included.** Permission sets are attached to groups and users as each account
-  lands, not as a separate manual step.
-- **Interactive wizard.** `--init` walks you through account names, OU selection and assignments,
-  then writes the input file for you.
-- **No infrastructure.** A local binary. Nothing is deployed, nothing is left running.
+**やり直しが効かない**
+AWSアカウントの作成は取り消せません。許可セット名のタイプミスのような小さな誤りも、アカウントが出来上がってから発覚します。
 
-## Install
+これらを解決するために作ったのがこのツールです。**作成前にすべて検証し、複数アカウントを並列で作成し、出来上がった順に割り当てまで完了させる**ことを設計の軸にしています。
+
+## 特徴
+
+- **事前検証（`--dry-run`）** — 入力ファイルの形式と、参照しているOU・許可セット・グループ・ユーザーの実在をすべて確認します。アカウントは1つも作りません
+- **一括作成** — 1つのTSVから複数アカウントを作成し、goroutineで並列にポーリングしながら進捗を表示します
+- **割り当てまで一気通貫** — 許可セットの割り当てを別作業にせず、各アカウントが利用可能になった時点で順次適用します
+- **対話ウィザード（`--init`）** — アカウント名の入力、OUの選択、割り当ての指定を対話形式で行い、入力ファイルを生成します
+- **デプロイ不要** — ローカル実行のバイナリです。AWS上に常駐リソースを一切残しません
+
+## インストール
 
 ```bash
 go install github.com/kawaguchi1035/aws-account-provisioner@latest
 ```
 
-## Usage
+## 使い方
 
 ```bash
-# 1. Generate an input file interactively
+# 1. 対話ウィザードで入力ファイルを生成
 aws-account-provisioner --init
 
-# 2. Validate everything without creating accounts
+# 2. アカウントを作らずに検証だけ行う
 aws-account-provisioner --dry-run input.tsv
 
-# 3. Provision
+# 3. 実行
 aws-account-provisioner input.tsv
 ```
 
-### Input file
+### 入力ファイル
 
-TSV, one row per assignment. Rows sharing an email are grouped — the account is created once.
+TSV形式で、1行 = 1割り当てです。同じメールアドレスの行はまとめられ、アカウント作成は1回だけ実行されます。
 
 ```tsv
 AccountEmail	AccountName	OU	PrincipalType	PrincipalName	PermissionSetName
@@ -55,37 +56,34 @@ aws+dev@example.com	dev-account	Sandbox (ou-xxxx-xxxxxxxx)	GROUP	Developers	Admi
 aws+dev@example.com	dev-account	Sandbox (ou-xxxx-xxxxxxxx)	USER	taro	ReadOnlyAccess
 ```
 
-### Configuration
+### 設定
 
-Set via environment variables or a `.env` file.
+環境変数、または `.env` ファイルで指定します。
 
-| Variable | Required | Default | Description |
+| 変数 | 必須 | 既定値 | 説明 |
 |---|---|---|---|
-| `ROOT_ACCOUNT_ID` | yes | — | Organizations management account ID |
-| `ASSUME_ROLE_NAME` | no | `AWSControlTowerExecution` | Role assumed in the management account |
-| `EMAIL_TEMPLATE` | no | `aws+{account_name}@example.com` | Root email pattern used by `--init` |
-| `AWS_PROFILE` | no | — | Overridden by `--profile` |
+| `ROOT_ACCOUNT_ID` | 必須 | — | Organizations管理アカウントのID（12桁） |
+| `ASSUME_ROLE_NAME` | 任意 | `AWSControlTowerExecution` | 管理アカウントで引き受けるロール名 |
+| `EMAIL_TEMPLATE` | 任意 | `aws+{account_name}@example.com` | `--init` が使うルートメールのテンプレート |
+| `AWS_PROFILE` | 任意 | — | `--profile` で上書き可能 |
 
-## Requirements
+## 動作要件
 
-- Go 1.23+
-- AWS Control Tower enabled, with Account Factory available
-- IAM Identity Center enabled
-- An AWS profile that can assume a role in the management account
-  (see [required permissions](docs/SPEC.md#10-required-iam-permissions))
+- Go 1.23以降
+- AWS Control Tower が有効化され、Account Factory が利用可能であること
+- IAM Identity Center が有効化されていること
+- 管理アカウントへAssumeRoleできるAWSプロファイル（[必要な権限](docs/SPEC.md#10-必要なiam権限)を参照）
 
-## Caveats
+## 注意事項
 
-- **Account creation is irreversible.** Always run `--dry-run` first.
-- **Duplicate root emails cannot be pre-checked.** AWS provides no API for it, so a collision
-  surfaces at provisioning time and is reported as a failure.
-- **`Ctrl+C` stops polling, not provisioning.** Requests already sent to AWS continue on their
-  side; the tool warns you when this happens.
+- **アカウント作成は取り消せません。** 必ず `--dry-run` を先に実行してください
+- **ルートメールの重複は事前検証できません。** AWSに該当するAPIが存在しないため、重複は作成時に判明し、失敗として報告されます
+- **`Ctrl+C` はポーリングを止めるだけです。** 送信済みの `ProvisionProduct` リクエストはAWS側で処理が継続します。その場合はツールが明示的に警告を表示します
 
-## Documentation
+## ドキュメント
 
-- [docs/SPEC.md](docs/SPEC.md) — full specification
+- [docs/SPEC.md](docs/SPEC.md) — 仕様書
 
-## License
+## ライセンス
 
 [MIT](LICENSE)

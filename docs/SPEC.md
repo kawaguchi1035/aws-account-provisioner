@@ -1,66 +1,62 @@
-# Specification
+# 仕様書
 
-Design document for `aws-account-provisioner`.
+`aws-account-provisioner` の設計ドキュメント。
 
-## 1. Overview
+## 1. 概要
 
-A single-binary CLI that provisions AWS accounts through **Control Tower Account Factory**
-and assigns **IAM Identity Center** permission sets to groups and users.
+**Control Tower Account Factory** によるAWSアカウント作成と、**IAM Identity Center** の許可セット割り当て（グループ／ユーザー）を行う、単一バイナリのCLIツール。
 
-Creating an AWS account is slow (20–40 minutes) and irreversible. This tool is built around
-that constraint: everything is validated up front, several accounts are provisioned
-concurrently, and assignments are applied as soon as each account becomes available.
+AWSアカウントの作成には20〜40分かかり、かつ取り消しができない。本ツールはこの制約を前提に設計している。すなわち、**作成前にすべてを検証し、複数アカウントを並列に作成し、利用可能になったものから順に割り当てを適用する**。
 
-## 2. Goals / Non-goals
+## 2. スコープ
 
-### Goals
+### 対象
 
-- Provision multiple accounts from a single TSV file
-- Validate every referenced OU, permission set, group and user **before** anything is created
-- Poll provisioning status concurrently and report progress
-- Assign permission sets as soon as each account is ready
-- Leave no infrastructure behind — the tool is a local CLI with no deployed components
+- 1つのTSVファイルから複数アカウントを作成する
+- 参照しているOU・許可セット・グループ・ユーザーの実在を、**何かを作成する前に**すべて検証する
+- 作成状況を並列にポーリングし、進捗を表示する
+- 各アカウントが利用可能になった時点で許可セットを割り当てる
+- AWS上に常駐リソースを残さない（ローカル実行のCLIとして完結させる）
 
-### Non-goals
+### 対象外
 
-- Permissions Boundary enforcement / StackSet manipulation
-- SCP management
-- Account deletion, suspension, or moving accounts between OUs
-- Renaming existing accounts
-- Detecting duplicate root email addresses (AWS exposes no API for this — see §9)
+- Permissions Boundary の enforce 適用 / StackSet 操作
+- SCP の管理
+- アカウントの削除・停止・OU間の移動
+- 既存アカウントの名称変更
+- ルートメールアドレスの重複検出（AWSに該当APIが存在しないため。§9参照）
 
-## 3. Prerequisites
+## 3. 前提条件
 
-| Requirement | Detail |
+| 項目 | 内容 |
 |---|---|
-| Go | 1.23 or later |
-| AWS Control Tower | Enabled; Account Factory available as a Service Catalog product |
-| IAM Identity Center | Enabled in the management account |
-| AWS profile | An SSO profile able to assume a role in the Organizations management account |
+| Go | 1.23以降 |
+| AWS Control Tower | 有効化済みで、Account Factory が Service Catalog 製品として存在すること |
+| IAM Identity Center | 管理アカウントで有効化済みであること |
+| AWSプロファイル | Organizations管理アカウントのロールをAssumeRoleできるSSOプロファイル |
 
-## 4. Commands
+## 4. コマンド
 
 ```bash
-# Interactive wizard — generates input.tsv
+# 対話ウィザード — input.tsv を生成
 aws-account-provisioner --init
 
-# Validate without creating anything
+# 検証のみ（何も作成しない）
 aws-account-provisioner --dry-run input.tsv
 
-# Provision
+# 実行
 aws-account-provisioner input.tsv
 ```
 
-| Flag | Default | Description |
+| フラグ | 既定値 | 説明 |
 |---|---|---|
-| `--init` | `false` | Launch the interactive wizard and write `input.tsv` |
-| `--dry-run` | `false` | Validate input and AWS state; create nothing |
-| `--profile` | `$AWS_PROFILE` | AWS profile used to reach the management account |
+| `--init` | `false` | 対話ウィザードを起動し `input.tsv` を書き出す |
+| `--dry-run` | `false` | 入力とAWS側の状態を検証する。何も作成しない |
+| `--profile` | `$AWS_PROFILE` | 管理アカウントへの接続に使うAWSプロファイル |
 
-## 5. Input file
+## 5. 入力ファイル
 
-TSV, one row per assignment. Rows sharing an `AccountEmail` are grouped: the account is
-created once, and every assignment for it is applied afterwards.
+TSV形式、1行 = 1割り当て。`AccountEmail` が同一の行はグループ化され、アカウント作成は1回のみ、割り当てはその後に行数分実行される。
 
 ```tsv
 AccountEmail	AccountName	OU	PrincipalType	PrincipalName	PermissionSetName
@@ -69,107 +65,100 @@ aws+dev@example.com	dev-account	Sandbox (ou-xxxx-xxxxxxxx)	USER	taro	ReadOnlyAcc
 aws+stg@example.com	stg-account	Staging (ou-xxxx-xxxxxxxx)	GROUP	Developers	AdministratorAccess
 ```
 
-| Column | Description |
+| 列 | 説明 |
 |---|---|
-| `AccountEmail` | Root email address. Must be globally unique across all of AWS |
-| `AccountName` | Account display name |
-| `OU` | Target organizational unit, formatted as `Name (ou-xxxx-xxxxxxxx)` |
-| `PrincipalType` | `GROUP` or `USER` |
-| `PrincipalName` | Group or user name in IAM Identity Center |
-| `PermissionSetName` | Permission set name |
+| `AccountEmail` | ルートメールアドレス。AWS全体で一意である必要がある |
+| `AccountName` | アカウント表示名 |
+| `OU` | 作成先の組織単位。`名前 (ou-xxxx-xxxxxxxx)` 形式 |
+| `PrincipalType` | `GROUP` または `USER` |
+| `PrincipalName` | IAM Identity Center 上のグループ名またはユーザー名 |
+| `PermissionSetName` | 許可セット名 |
 
-## 6. Configuration
+## 6. 設定
 
-Read from environment variables, optionally via a `.env` file.
+環境変数から読み込む。`.env` ファイルにも対応する。
 
-| Variable | Required | Description |
+| 変数 | 必須 | 説明 |
 |---|---|---|
-| `ROOT_ACCOUNT_ID` | yes | 12-digit ID of the Organizations management account |
-| `ASSUME_ROLE_NAME` | no | Role assumed in the management account. Default: `AWSControlTowerExecution` |
-| `EMAIL_TEMPLATE` | no | Template used by the wizard to derive root emails. Default: `aws+{account_name}@example.com` |
-| `AWS_PROFILE` | no | Overridden by `--profile` |
+| `ROOT_ACCOUNT_ID` | 必須 | Organizations管理アカウントのID（12桁） |
+| `ASSUME_ROLE_NAME` | 任意 | 管理アカウントで引き受けるロール名。既定値 `AWSControlTowerExecution` |
+| `EMAIL_TEMPLATE` | 任意 | ウィザードがルートメールを導出するためのテンプレート。既定値 `aws+{account_name}@example.com` |
+| `AWS_PROFILE` | 任意 | `--profile` で上書きされる |
 
-`EMAIL_TEMPLATE` supports the `{account_name}` placeholder, substituted with the lowercased
-account name.
+`EMAIL_TEMPLATE` は `{account_name}` プレースホルダに対応し、小文字化したアカウント名で置換される。
 
-## 7. Processing flow
+## 7. 処理フロー
 
 ```
-authenticate → discover → validate → provision → poll → assign → report
+認証 → 検出 → 検証 → 作成 → ポーリング → 割り当て → 結果出力
 ```
 
-1. **Authenticate** — assume `ASSUME_ROLE_NAME` in `ROOT_ACCOUNT_ID` using the given profile
-2. **Discover** — locate the Account Factory product (Service Catalog) and the Identity Center
-   instance; page through permission sets, resolving each ARN to its name once and caching the
-   result; page through users, groups and OUs
-3. **Validate** — check TSV shape, then confirm every OU, permission set, group and user exists
-4. **Provision** — submit `ProvisionProduct` for every distinct account
-5. **Poll** — one goroutine per account, 30-second interval, 60-minute ceiling
-6. **Assign** — as each account reaches `AVAILABLE`, create its account assignments and wait for
-   each to reach `SUCCEEDED`
-7. **Report** — print a summary and write `results/YYYYMMDD_HHMMSS_result.tsv`
+1. **認証** — 指定プロファイルで `ROOT_ACCOUNT_ID` の `ASSUME_ROLE_NAME` をAssumeRole
+2. **検出** — Account Factory 製品（Service Catalog）と Identity Center インスタンスを特定。許可セットをページネーションで取得し、各ARNを名前に解決して**キャッシュ**。ユーザー・グループ・OUの一覧も取得する
+3. **検証** — TSVの形式を検査したうえで、参照しているOU・許可セット・グループ・ユーザーの実在を確認
+4. **作成** — アカウントごとに `ProvisionProduct` を一括送信
+5. **ポーリング** — アカウント1件につきgoroutine 1本、30秒間隔、上限60分
+6. **割り当て** — `AVAILABLE` になったアカウントから順に割り当てを作成し、各要求が `SUCCEEDED` になるまで待機
+7. **結果出力** — サマリを標準出力に表示し、`results/YYYYMMDD_HHMMSS_result.tsv` を書き出す
 
-Steps 2 and 3 are the whole of `--dry-run`.
+`--dry-run` はステップ2と3のみを実行する。
 
-### Why cache permission sets
+### 許可セットをキャッシュする理由
 
-`ListPermissionSets` returns ARNs only, so each one needs a `DescribePermissionSet` call to
-recover its name. Resolving lazily would issue that call on every lookup, so the mapping is
-built once during discovery and held in memory.
+`ListPermissionSets` はARNしか返さないため、名前を得るには各ARNに対して `DescribePermissionSet` を呼ぶ必要がある。参照のたびに解決すると許可セット数だけAPIコールが発生するため、検出フェーズで一度だけマッピングを構築し、メモリ上に保持する。
 
-## 8. Output
+## 8. 出力
 
 ```
 results/
 └── 20260919_181530_result.tsv
 ```
 
-| Column | Description |
+| 列 | 説明 |
 |---|---|
-| `OU` | Target OU |
-| `AccountID` | Created account ID |
-| `AccountName` | Account display name |
-| `AccountEmail` | Root email |
+| `OU` | 作成先OU |
+| `AccountID` | 作成されたアカウントID |
+| `AccountName` | アカウント表示名 |
+| `AccountEmail` | ルートメールアドレス |
 | `Status` | `SUCCEEDED` / `FAILED` |
-| `ErrorMessage` | Populated on failure |
+| `ErrorMessage` | 失敗時のみ |
 
-A summary is also printed to stdout.
+サマリは標準出力にも表示する。
 
-## 9. Error handling
+## 9. エラーハンドリング
 
-| Case | Behaviour |
+| ケース | 挙動 |
 |---|---|
-| Validation failure | Abort before any account is created; report every problem at once |
-| Provisioning failure for one account | Other accounts continue; the failure is recorded |
-| Assignment failure | The account is still reported as created, with the assignment error attached |
-| Polling timeout (60 min) | Marked `FAILED`; AWS may still complete it, so the account ID is reported if known |
-| `SIGINT` | Stop polling and exit cleanly. **Already-submitted `ProvisionProduct` requests continue on the AWS side** — this is printed explicitly as a warning |
+| 検証エラー | アカウントを1つも作らずに中断し、**問題を一括で列挙**する |
+| 特定アカウントの作成失敗 | 他のアカウントは継続。失敗は記録する |
+| 割り当ての失敗 | アカウント作成自体は成功として扱い、割り当てエラーを併記する |
+| ポーリングのタイムアウト（60分） | `FAILED` として記録。AWS側では完了する可能性があるため、判明していればアカウントIDも出力する |
+| `SIGINT` | ポーリングを停止して正常終了する。**送信済みの `ProvisionProduct` はAWS側で処理が継続する**ため、その旨を明示的に警告する |
 
-Duplicate root email addresses cannot be detected in advance: AWS offers no dry-run for account
-creation. Such an account fails at step 4 and is reported as `FAILED`.
+ルートメールの重複は事前に検出できない。AWSがアカウント作成のドライランを提供していないため、重複はステップ4で失敗として顕在化する。
 
-## 10. Required IAM permissions
+## 10. 必要なIAM権限
 
-The assumed role needs, at minimum:
+AssumeRole先のロールに最低限必要な権限。
 
-| Service | Actions |
+| サービス | アクション |
 |---|---|
 | `organizations` | `ListRoots`, `ListOrganizationalUnitsForParent`, `DescribeAccount` |
 | `servicecatalog` | `SearchProducts`, `DescribeProduct`, `ProvisionProduct`, `DescribeRecord` |
-| `sso` (ssoadmin) | `ListInstances`, `ListPermissionSets`, `DescribePermissionSet`, `CreateAccountAssignment`, `DescribeAccountAssignmentCreationStatus` |
+| `sso`（ssoadmin） | `ListInstances`, `ListPermissionSets`, `DescribePermissionSet`, `CreateAccountAssignment`, `DescribeAccountAssignmentCreationStatus` |
 | `identitystore` | `ListUsers`, `ListGroups`, `GetUserId`, `GetGroupId` |
 | `sts` | `AssumeRole` |
 
-A ready-to-use policy document ships as `docs/iam-policy.json`.
+すぐに使えるポリシードキュメントを `docs/iam-policy.json` として同梱する。
 
-## 11. Implementation
+## 11. 実装
 
-| Concern | Choice |
+| 項目 | 選定 |
 |---|---|
-| Language | Go 1.23+ |
-| AWS | AWS SDK for Go v2 (`organizations`, `servicecatalog`, `ssoadmin`, `identitystore`, `sts`, `config`) |
-| CLI parsing | Standard library `flag` |
-| Interactive prompts | `promptui`, with incremental search on long lists |
-| Configuration | `godotenv` |
-| Tests | Standard library `testing` |
-| Lint | `golangci-lint`, run in CI |
+| 言語 | Go 1.23以降 |
+| AWS | AWS SDK for Go v2（`organizations`, `servicecatalog`, `ssoadmin`, `identitystore`, `sts`, `config`） |
+| CLIパース | 標準ライブラリ `flag` |
+| 対話UI | `promptui`（長い一覧にはインクリメンタル検索を付与） |
+| 設定 | `godotenv` |
+| テスト | 標準ライブラリ `testing` |
+| Lint | `golangci-lint`（CIで実行） |
