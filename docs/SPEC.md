@@ -24,6 +24,7 @@ AWSアカウントの作成には20〜40分かかり、かつ取り消しがで�
 | AWS Control Tower | 有効化済みで、Account Factory が Service Catalog 製品として存在すること |
 | IAM Identity Center | 管理アカウントで有効化済みであること |
 | AWSプロファイル | Organizations管理アカウントに到達できるプロファイル（直接、または踏み台ロール経由。§6.1参照） |
+| リージョン | プロファイルまたは `AWS_REGION` で解決されるリージョンが、**Control Tower のホームリージョン**であること。Account Factory はそこに存在するため |
 
 ## 4. コマンド
 
