@@ -132,8 +132,10 @@ func (s *stubOrganizations) ListOrganizationalUnitsForParent(_ context.Context, 
 }
 
 type stubServiceCatalog struct {
-	products []sctypes.ProductViewSummary
-	err      error
+	products    []sctypes.ProductViewSummary
+	artifacts   []sctypes.ProvisioningArtifactDetail
+	err         error
+	artifactErr error
 }
 
 func (s *stubServiceCatalog) SearchProducts(context.Context, *servicecatalog.SearchProductsInput, ...func(*servicecatalog.Options)) (*servicecatalog.SearchProductsOutput, error) {
@@ -141,6 +143,13 @@ func (s *stubServiceCatalog) SearchProducts(context.Context, *servicecatalog.Sea
 		return nil, s.err
 	}
 	return &servicecatalog.SearchProductsOutput{ProductViewSummaries: s.products}, nil
+}
+
+func (s *stubServiceCatalog) ListProvisioningArtifacts(context.Context, *servicecatalog.ListProvisioningArtifactsInput, ...func(*servicecatalog.Options)) (*servicecatalog.ListProvisioningArtifactsOutput, error) {
+	if s.artifactErr != nil {
+		return nil, s.artifactErr
+	}
+	return &servicecatalog.ListProvisioningArtifactsOutput{ProvisioningArtifactDetails: s.artifacts}, nil
 }
 
 func pageFor[T any](pages []page[T], token string) page[T] {
@@ -194,9 +203,16 @@ func workingDeps() Deps {
 				}}},
 			},
 		},
-		ServiceCatalog: &stubServiceCatalog{products: []sctypes.ProductViewSummary{
-			{Name: aws.String("Some Other Product"), ProductId: aws.String("prod-other")},
-			{Name: aws.String(AccountFactoryProductName), ProductId: aws.String("prod-af")},
-		}},
+		ServiceCatalog: &stubServiceCatalog{
+			products: []sctypes.ProductViewSummary{
+				{Name: aws.String("Some Other Product"), ProductId: aws.String("prod-other")},
+				{Name: aws.String(AccountFactoryProductName), ProductId: aws.String("prod-af")},
+			},
+			artifacts: []sctypes.ProvisioningArtifactDetail{
+				{Id: aws.String("pa-old"), Active: aws.Bool(true)},
+				{Id: aws.String("pa-retired"), Active: aws.Bool(false)},
+				{Id: aws.String("pa-current"), Active: aws.Bool(true)},
+			},
+		},
 	}
 }

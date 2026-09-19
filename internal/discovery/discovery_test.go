@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	sctypes "github.com/aws/aws-sdk-go-v2/service/servicecatalog/types"
 	ssotypes "github.com/aws/aws-sdk-go-v2/service/ssoadmin/types"
 )
 
@@ -24,6 +25,10 @@ func TestLoad(t *testing.T) {
 	}
 	if catalog.AccountFactoryProductID != "prod-af" {
 		t.Errorf("AccountFactoryProductID = %q, want the Account Factory product", catalog.AccountFactoryProductID)
+	}
+	// The newest active artifact wins; inactive versions are skipped.
+	if catalog.AccountFactoryArtifactID != "pa-current" {
+		t.Errorf("AccountFactoryArtifactID = %q, want pa-current", catalog.AccountFactoryArtifactID)
 	}
 
 	// Permission sets span two pages; both must be resolved to names.
@@ -146,6 +151,22 @@ func TestLoadFailures(t *testing.T) {
 				d.Organizations.(*stubOrganizations).rootsErr = errors.New("access denied")
 			},
 			wantMsg: "list organization roots",
+		},
+		{
+			name: "no active provisioning artifact",
+			mutate: func(d *Deps) {
+				d.ServiceCatalog.(*stubServiceCatalog).artifacts = []sctypes.ProvisioningArtifactDetail{
+					{Id: aws.String("pa-retired"), Active: aws.Bool(false)},
+				}
+			},
+			wantMsg: "no active provisioning artifact",
+		},
+		{
+			name: "listing artifacts fails",
+			mutate: func(d *Deps) {
+				d.ServiceCatalog.(*stubServiceCatalog).artifactErr = errors.New("access denied")
+			},
+			wantMsg: "list provisioning artifacts",
 		},
 		{
 			name: "searching products fails",

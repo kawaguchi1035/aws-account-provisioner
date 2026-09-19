@@ -44,6 +44,7 @@ aws-account-provisioner input.tsv
 | `--init` | `false` | 対話ウィザードを起動し `input.tsv` を書き出す |
 | `--dry-run` | `false` | 入力とAWS側の状態を検証する。何も作成しない |
 | `--profile` | `$AWS_PROFILE` | 管理アカウントへの接続に使うAWSプロファイル |
+| `--yes` | `false` | 作成前の確認プロンプトを省略する（CI等の非対話実行向け） |
 
 ## 5. 入力ファイル
 
@@ -74,6 +75,8 @@ aws+stg@example.com	stg-account	Staging (ou-xxxx-xxxxxxxx)	GROUP	Developers	Admi
 | `ROOT_ACCOUNT_ID` | 必須 | Organizations管理アカウントのID（12桁） |
 | `ASSUME_ROLE_NAME` | 任意 | 管理アカウントで引き受けるロール名。**未設定ならAssumeRoleを行わない**（§6.1参照） |
 | `EMAIL_TEMPLATE` | 任意 | ウィザードがルートメールを導出するためのテンプレート。既定値 `aws+{account_name}@example.com` |
+| `SSO_USER_FIRST_NAME` | 任意 | Account Factory が各アカウントに作る初期 Identity Center ユーザーの名。既定値 `Admin` |
+| `SSO_USER_LAST_NAME` | 任意 | 同じく姓。既定値 `User` |
 | `AWS_PROFILE` | 任意 | `--profile` で上書きされる |
 
 `EMAIL_TEMPLATE` は `{account_name}` プレースホルダに対応し、小文字化したアカウント名で置換される。
@@ -100,12 +103,25 @@ AssumeRole時の `RoleSessionName` は `aws-account-provisioner` を用いる。
 1. **認証** — プロファイルを読み込み、`ASSUME_ROLE_NAME` があればAssumeRole（§6.1）。続けて `sts:GetCallerIdentity` で到達先アカウントが `ROOT_ACCOUNT_ID` と一致することを確認
 2. **検出** — Account Factory 製品（Service Catalog）と Identity Center インスタンスを特定。許可セットをページネーションで取得し、各ARNを名前に解決して**キャッシュ**。ユーザー・グループ・OUの一覧も取得する
 3. **検証** — TSVの形式を検査したうえで、参照しているOU・許可セット・グループ・ユーザーの実在を確認
-4. **作成** — アカウントごとに `ProvisionProduct` を一括送信
-5. **ポーリング** — アカウント1件につきgoroutine 1本、30秒間隔、上限60分
-6. **割り当て** — `AVAILABLE` になったアカウントから順に割り当てを作成し、各要求が `SUCCEEDED` になるまで待機
-7. **結果出力** — サマリを標準出力に表示し、`results/YYYYMMDD_HHMMSS_result.tsv` を書き出す
+4. **確認** — 作成対象を表示し、取り消せない操作であることを明示して確認を取る（`--yes` で省略可）
+5. **作成** — アカウントごとに `ProvisionProduct` を一括送信
+6. **ポーリング** — アカウント1件につきgoroutine 1本、30秒間隔、上限60分
+7. **割り当て** — `AVAILABLE` になったアカウントから順に割り当てを作成し、各要求が `SUCCEEDED` になるまで待機
+8. **結果出力** — サマリを標準出力に表示し、`results/YYYYMMDD_HHMMSS_result.tsv` を書き出す
 
 `--dry-run` はステップ2と3のみを実行する。
+
+### Account Factory に渡すパラメータ
+
+| キー | 値 |
+|---|---|
+| `AccountEmail` | 入力ファイルの `AccountEmail` |
+| `AccountName` | 入力ファイルの `AccountName` |
+| `ManagedOrganizationalUnit` | `OU名 (ou-xxxx-xxxxxxxx)` |
+| `SSOUserEmail` | アカウントのルートメールと同じ |
+| `SSOUserFirstName` / `SSOUserLastName` | `SSO_USER_FIRST_NAME` / `SSO_USER_LAST_NAME` |
+
+製品バージョン（プロビジョニングアーティファクト）は、`ListProvisioningArtifacts` が返すもののうち**最も新しい有効なもの**を使う。Control Tower は Account Factory を随時更新し、無効なバージョンでの起動は失敗するため。
 
 ### 許可セットをキャッシュする理由
 
