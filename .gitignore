@@ -1,0 +1,19 @@
+# Binaries
+/aws-account-provisioner
+*.exe
+*.test
+*.out
+
+# Local config & credentials
+.env
+.env.local
+
+# Generated input / results
+/input.tsv
+/results/
+/output/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
