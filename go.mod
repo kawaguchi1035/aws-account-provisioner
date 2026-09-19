@@ -6,6 +6,10 @@ require (
 	github.com/aws/aws-sdk-go-v2 v1.47.0
 	github.com/aws/aws-sdk-go-v2/config v1.33.5
 	github.com/aws/aws-sdk-go-v2/credentials v1.20.5
+	github.com/aws/aws-sdk-go-v2/service/identitystore v1.44.0
+	github.com/aws/aws-sdk-go-v2/service/organizations v1.60.0
+	github.com/aws/aws-sdk-go-v2/service/servicecatalog v1.47.0
+	github.com/aws/aws-sdk-go-v2/service/ssoadmin v1.48.0
 	github.com/aws/aws-sdk-go-v2/service/sts v1.51.0
 	github.com/joho/godotenv v1.5.1
 )
